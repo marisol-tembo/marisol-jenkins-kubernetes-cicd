@@ -1,0 +1,17 @@
+---
+- name: Rollback demo app deployment on EKS
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    kubeconfig_path: "{{ lookup('env', 'HOME') }}/.kube/config"
+  tasks:
+    - name: Roll back deployment one revision
+      ansible.builtin.command: kubectl -n demo rollout undo deployment/demo-app
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+
+    - name: Wait for rollback rollout
+      ansible.builtin.command: kubectl -n demo rollout status deployment/demo-app --timeout=180s
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"

@@ -1,0 +1,22 @@
+# Checkov policy for lab/portfolio use.
+# Free controls that improve security are applied in Terraform.
+# Costly or lab-inappropriate checks are skipped with justification.
+
+framework:
+  - terraform
+
+skip-check:
+  # Public subnets intentionally auto-assign public IPs for Jenkins/NAT
+  - CKV_AWS_130
+  # VPC flow logs incur CloudWatch charges
+  - CKV2_AWS_11
+  # Jenkins UI port is exposed for lab demos; production would use ALB + auth
+  - CKV_AWS_24
+  # EKS control plane logging to CloudWatch has cost; basic logs enabled in code
+  - CKV_AWS_37
+  # EKS public endpoint enabled for lab bootstrap simplicity
+  - CKV_AWS_39
+  # Single NAT from Project 1 pattern for cost control
+  - CKV_AWS_130
+  # Security groups are attached to Jenkins, Ansible, and EKS resources
+  - CKV2_AWS_5

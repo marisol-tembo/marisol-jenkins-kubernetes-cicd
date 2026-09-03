@@ -1,0 +1,29 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+*.tfvars
+*.tfvars.json
+*.tfplan
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Java / Maven
+app/target/
+*.class
+*.jar
+*.war
+.idea/
+*.iml
+
+# OS / editor
+.DS_Store
+*.swp
+
+# Secrets / local
+.env
+*.pem
