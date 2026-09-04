@@ -72,7 +72,7 @@ pipeline {
     stage('Docker Build') {
       steps {
         sh '''
-          docker build -t ${ECR_REPOSITORY_URL}:${IMAGE_TAG} -t ${ECR_REPOSITORY_URL}:latest ${APP_DIR}
+          docker build -t ${ECR_REPOSITORY_URL}:${IMAGE_TAG} ${APP_DIR}
         '''
       }
     }
@@ -91,7 +91,6 @@ pipeline {
           aws ecr get-login-password --region ${AWS_REGION} \
             | docker login --username AWS --password-stdin ${ECR_REPOSITORY_URL%/*}
           docker push ${ECR_REPOSITORY_URL}:${IMAGE_TAG}
-          docker push ${ECR_REPOSITORY_URL}:latest
         '''
       }
     }

@@ -18,11 +18,15 @@ skip-check:
   - CKV_AWS_126
   # EKS secrets encryption requires a customer-managed KMS key (~monthly cost)
   - CKV_AWS_58
+  # ECR KMS encryption requires a customer-managed KMS key; AES256 is used instead
+  - CKV_AWS_136
   # EKS control plane logging retention / extra log groups add CloudWatch cost
   - CKV_AWS_37
   - CKV_AWS_338
   # EKS public endpoint enabled for lab bootstrap simplicity
   - CKV_AWS_39
+  # EKS public endpoint open to 0.0.0.0/0 for lab access; production would restrict CIDRs
+  - CKV_AWS_38
   # ECR GetAuthorizationToken requires Resource "*" by AWS design
   - CKV_AWS_355
   # Security groups are attached to Jenkins, Ansible, and EKS resources
