@@ -49,31 +49,30 @@ resource "aws_iam_role_policy" "ansible_eks" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid    = "EksDescribe"
+        Sid    = "EksClusterAccess"
         Effect = "Allow"
         Action = [
           "eks:DescribeCluster",
-          "eks:ListClusters"
+          "eks:AccessKubernetesApi"
         ]
-        Resource = "*"
+        Resource = var.eks_cluster_arn
       },
       {
-        Sid      = "EksApiAccess"
+        Sid      = "EcrAuthToken"
         Effect   = "Allow"
-        Action   = ["eks:AccessKubernetesApi"]
-        Resource = var.eks_cluster_arn
+        Action   = ["ecr:GetAuthorizationToken"]
+        Resource = "*"
       },
       {
         Sid    = "EcrPull"
         Effect = "Allow"
         Action = [
-          "ecr:GetAuthorizationToken",
           "ecr:BatchCheckLayerAvailability",
           "ecr:GetDownloadUrlForLayer",
           "ecr:BatchGetImage",
           "ecr:DescribeRepositories"
         ]
-        Resource = "*"
+        Resource = "arn:aws:ecr:*:*:repository/*"
       }
     ]
   })
@@ -127,6 +126,7 @@ resource "aws_instance" "ansible" {
   vpc_security_group_ids      = [var.security_group_id]
   iam_instance_profile        = aws_iam_instance_profile.ansible.name
   associate_public_ip_address = false
+  ebs_optimized               = true
   user_data                   = local.ansible_user_data
 
   metadata_options {

@@ -45,6 +45,10 @@ This matches a common enterprise pattern: **build is separated from deploy**, wi
 
 ```text
 .
+├── .github/workflows/
+│   ├── terraform-checks.yml
+│   ├── terraform-deploy.yml
+│   └── devsecops.yml
 ├── Jenkinsfile
 ├── app/                 # Spring Boot sample application
 ├── ansible/             # deploy.yml and rollback.yml
@@ -57,6 +61,19 @@ This matches a common enterprise pattern: **build is separated from deploy**, wi
     ├── modules/ecr/
     └── modules/eks/
 ```
+
+## CI/CD (GitHub Actions)
+
+- **Pull requests (`terraform-checks.yml`):** Terraform `fmt`, `init -backend=false`, `validate`
+- **PRs and pushes to main (`devsecops.yml`):** Gitleaks secret scan + Checkov IaC scan
+- **Manual deploy (`terraform-deploy.yml`):** `workflow_dispatch` runs Terraform init/validate/plan/apply
+
+App build/deploy stays in Jenkins for this project. Terraform AWS apply is manual via GitHub Actions so you control when infrastructure (and cost) is created.
+
+Required GitHub secrets:
+
+- `AWS_ACCESS_KEY`
+- `AWS_SECRET_ACCESS_KEY`
 
 ## Prerequisites
 

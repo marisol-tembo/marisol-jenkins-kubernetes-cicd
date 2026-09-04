@@ -151,12 +151,42 @@ resource "aws_security_group_rule" "eks_nodes_ingress_self" {
   security_group_id = aws_security_group.eks_nodes.id
 }
 
-resource "aws_security_group_rule" "eks_nodes_egress_all" {
+resource "aws_security_group_rule" "eks_nodes_egress_https" {
   type              = "egress"
-  description       = "Outbound for nodes (images, API, DNS)"
-  from_port         = 0
-  to_port           = 0
-  protocol          = "-1"
+  description       = "HTTPS for ECR, EKS API, and package updates"
+  from_port         = 443
+  to_port           = 443
+  protocol          = "tcp"
+  cidr_blocks       = ["0.0.0.0/0"]
+  security_group_id = aws_security_group.eks_nodes.id
+}
+
+resource "aws_security_group_rule" "eks_nodes_egress_http" {
+  type              = "egress"
+  description       = "HTTP for package mirrors"
+  from_port         = 80
+  to_port           = 80
+  protocol          = "tcp"
+  cidr_blocks       = ["0.0.0.0/0"]
+  security_group_id = aws_security_group.eks_nodes.id
+}
+
+resource "aws_security_group_rule" "eks_nodes_egress_dns_udp" {
+  type              = "egress"
+  description       = "DNS resolution UDP"
+  from_port         = 53
+  to_port           = 53
+  protocol          = "udp"
+  cidr_blocks       = ["0.0.0.0/0"]
+  security_group_id = aws_security_group.eks_nodes.id
+}
+
+resource "aws_security_group_rule" "eks_nodes_egress_dns_tcp" {
+  type              = "egress"
+  description       = "DNS resolution TCP"
+  from_port         = 53
+  to_port           = 53
+  protocol          = "tcp"
   cidr_blocks       = ["0.0.0.0/0"]
   security_group_id = aws_security_group.eks_nodes.id
 }

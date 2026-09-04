@@ -12,11 +12,22 @@ skip-check:
   - CKV2_AWS_11
   # Jenkins UI port is exposed for lab demos; production would use ALB + auth
   - CKV_AWS_24
-  # EKS control plane logging to CloudWatch has cost; basic logs enabled in code
+  # Jenkins has a public IP in Phase 1 for easy lab access; production would be private + ALB
+  - CKV_AWS_88
+  # EC2 detailed monitoring adds CloudWatch cost
+  - CKV_AWS_126
+  # EKS secrets encryption requires a customer-managed KMS key (~monthly cost)
+  - CKV_AWS_58
+  # ECR KMS encryption requires a customer-managed KMS key; AES256 is used instead
+  - CKV_AWS_136
+  # EKS control plane logging retention / extra log groups add CloudWatch cost
   - CKV_AWS_37
+  - CKV_AWS_338
   # EKS public endpoint enabled for lab bootstrap simplicity
   - CKV_AWS_39
-  # Single NAT from Project 1 pattern for cost control
-  - CKV_AWS_130
+  # EKS public endpoint open to 0.0.0.0/0 for lab access; production would restrict CIDRs
+  - CKV_AWS_38
+  # ECR GetAuthorizationToken requires Resource "*" by AWS design
+  - CKV_AWS_355
   # Security groups are attached to Jenkins, Ansible, and EKS resources
   - CKV2_AWS_5
