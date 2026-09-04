@@ -102,6 +102,7 @@ resource "aws_instance" "jenkins" {
   vpc_security_group_ids      = [var.security_group_id]
   iam_instance_profile        = aws_iam_instance_profile.jenkins.name
   associate_public_ip_address = true
+  ebs_optimized               = true
   user_data                   = local.jenkins_user_data
 
   metadata_options {
