@@ -27,10 +27,34 @@ After `terraform apply`:
      docker --version
      ```
 
-5. Create a Pipeline job pointing to this repository `Jenkinsfile`.
+5. In the setup wizard, install the suggested plugins (or at least Git + Pipeline).
+
+6. Create a Pipeline job pointing to this repository `Jenkinsfile`.
    - Keep `RUN_SONAR=false`
    - Keep `DEPLOY=false`
    - For now, validate Checkout + Maven Test stages
+
+## If Jenkins service fails
+
+On the instance via SSM:
+
+```bash
+sudo journalctl -u jenkins -n 100 --no-pager
+sudo tail -n 100 /var/log/jenkins/jenkins.log
+sudo systemctl status jenkins --no-pager
+```
+
+Common recovery (Java 21 required by current Jenkins):
+
+```bash
+sudo dnf install -y java-21-amazon-corretto java-21-amazon-corretto-devel
+JAVA_HOME_DIR="$(ls -d /usr/lib/jvm/java-21-amazon-corretto* | head -n 1)"
+sudo mkdir -p /etc/systemd/system/jenkins.service.d
+echo -e "[Service]\nEnvironment=\"JAVA_HOME=$JAVA_HOME_DIR\"" | sudo tee /etc/systemd/system/jenkins.service.d/override.conf
+sudo systemctl daemon-reload
+sudo systemctl restart jenkins
+sudo systemctl status jenkins --no-pager
+```
 
 ## Later phases
 

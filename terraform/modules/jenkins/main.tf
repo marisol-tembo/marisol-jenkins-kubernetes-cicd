@@ -51,47 +51,48 @@ locals {
     exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
 
     dnf update -y
-    dnf install -y java-17-amazon-corretto docker git maven wget unzip tar
+    # Current Jenkins LTS requires Java 21+
+    dnf install -y java-21-amazon-corretto java-21-amazon-corretto-devel docker git maven wget unzip tar
+
+    JAVA_HOME_DIR="$(ls -d /usr/lib/jvm/java-21-amazon-corretto* | head -n 1)"
+
+    # Ensure Jenkins systemd unit can find Java 21
+    mkdir -p /etc/systemd/system/jenkins.service.d
+    cat > /etc/systemd/system/jenkins.service.d/override.conf <<UNIT
+[Service]
+Environment="JAVA_HOME=$${JAVA_HOME_DIR}"
+UNIT
 
     systemctl enable docker
     systemctl start docker
     usermod -aG docker ec2-user
 
-    # Jenkins
+    # Jenkins package install
     wget -O /etc/yum.repos.d/jenkins.repo https://pkg.jenkins.io/redhat-stable/jenkins.repo
     rpm --import https://pkg.jenkins.io/redhat-stable/jenkins.io-2023.key
     dnf install -y jenkins
     usermod -aG docker jenkins
+
+    # Point Jenkins at Java 21 explicitly (AL2023)
+    if [ -f /etc/sysconfig/jenkins ]; then
+      sed -i "s|^JENKINS_JAVA_CMD=.*|JENKINS_JAVA_CMD=\"$${JAVA_HOME_DIR}/bin/java\"|" /etc/sysconfig/jenkins || true
+    fi
+
+    systemctl daemon-reload
     systemctl enable jenkins
     systemctl start jenkins
 
-    # Wait for Jenkins to come up, then install core pipeline plugins only
+    # Wait until Jenkins responds on 8080
     for i in $(seq 1 60); do
       if curl -fsS http://127.0.0.1:8080/login >/dev/null 2>&1; then
+        echo "Jenkins is up"
         break
       fi
       sleep 5
     done
 
-    if command -v jenkins-plugin-cli >/dev/null 2>&1; then
-      jenkins-plugin-cli --plugins \
-        git \
-        workflow-aggregator \
-        credentials \
-        credentials-binding \
-        junit \
-        pipeline-stage-view
-      systemctl restart jenkins
-    fi
-
-    # AWS CLI v2 is usually present on AL2023; ensure available
-    if ! command -v aws >/dev/null 2>&1; then
-      curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
-      unzip -q /tmp/awscliv2.zip -d /tmp
-      /tmp/aws/install
-    fi
-
-    echo "Jenkins bootstrap complete (Phase 1: Jenkins only)"
+    systemctl is-active --quiet jenkins
+    echo "Jenkins bootstrap complete (Phase 1: Jenkins only, Java 21)"
   EOF
 }
 
