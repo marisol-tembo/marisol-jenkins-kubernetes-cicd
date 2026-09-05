@@ -32,3 +32,8 @@ output "jenkins_url" {
   description = "Jenkins UI URL"
   value       = "http://${module.jenkins.public_ip}:8080"
 }
+
+output "sonarqube_url" {
+  description = "SonarQube UI URL (Docker on Jenkins host)"
+  value       = "http://${module.jenkins.public_ip}:9000"
+}
