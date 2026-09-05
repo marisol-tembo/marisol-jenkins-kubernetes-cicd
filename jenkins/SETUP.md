@@ -2,6 +2,12 @@
 
 Focus first on getting Jenkins up and usable. SonarCloud comes next.
 
+Bootstrap script lives in:
+
+`terraform/modules/jenkins/templates/user_data.sh`
+
+Terraform is configured with `user_data_replace_on_change = true`, so changing that script replaces the Jenkins EC2 and re-runs bootstrap.
+
 After `terraform apply`:
 
 1. Open the Jenkins URL:
