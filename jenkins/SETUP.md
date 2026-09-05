@@ -1,6 +1,6 @@
 # Phase 1 — Jenkins only
 
-Focus first on getting Jenkins up and usable. SonarCloud comes next.
+Focus first on getting Jenkins up and usable. Local SonarQube (Docker on the Jenkins host) comes next.
 
 Bootstrap script lives in:
 
@@ -36,9 +36,16 @@ After `terraform apply`:
 5. In the setup wizard, install the suggested plugins (or at least Git + Pipeline).
 
 6. Create a Pipeline job pointing to this repository `Jenkinsfile`.
-   - Keep `RUN_SONAR=false`
-   - Keep `DEPLOY=false`
-   - For now, validate Checkout + Maven Test stages
+   - Current stages only: Checkout → Maven Test → SonarQube
+   - Docker / Trivy / ECR / Deploy stages are removed until later phases
+
+## SonarQube on the Jenkins host (Docker)
+
+1. SonarQube Community container listens on `http://127.0.0.1:9000` (and optionally the public IP:9000 if the security group allows it).
+2. In Jenkins → Credentials, add Secret text ID `sonar-token` (SonarQube user token).
+3. Push the updated `Jenkinsfile`, then run the Pipeline (`RUN_SONAR` defaults to `true`).
+4. The first analysis creates the Sonar project automatically (`marisol-jenkins-kubernetes-cicd`).
+5. Confirm results in the SonarQube UI and that the quality gate did not fail the Jenkins stage.
 
 ## If Jenkins service fails
 
@@ -64,11 +71,11 @@ sudo systemctl status jenkins --no-pager
 
 ## Later phases
 
-- **SonarCloud:** add token credential `sonar-token`, install Sonar plugin/scanner, set `RUN_SONAR=true`
-- **ECR / Docker / Trivy:** enable image build and scan
+- **ECR / Docker / Trivy:** enable image build and scan (needs ECR from Terraform)
 - **Ansible + EKS:** enable deploy
+- **Optional:** SonarCloud later if you want GitHub PR decoration
 
 ## Notes
 
 - ECR, Ansible EC2, and EKS modules stay in the repo but are not applied in Phase 1.
-- SonarScanner is intentionally not installed yet.
+- Local Sonar uses the Maven `sonar:sonar` plugin (already in `app/pom.xml`); no separate scanner install required.
