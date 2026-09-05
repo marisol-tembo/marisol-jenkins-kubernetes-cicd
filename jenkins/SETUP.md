@@ -1,68 +1,188 @@
-# Phase 1 — Jenkins only
+# Phase 1 runbook — Jenkins + SonarQube on EC2
 
-Focus first on getting Jenkins up and usable. SonarCloud comes next.
+This is the step-by-step path after a fresh `terraform apply`, or after the Jenkins EC2 is replaced.
 
-After `terraform apply`:
+## Does a git push recreate Jenkins?
 
-1. Open the Jenkins URL:
-   ```bash
-   terraform output -raw jenkins_url
-   ```
+**No — not by itself.**
 
-2. Get the initial admin password via SSM:
-   ```bash
-   aws ssm start-session --target "$(terraform output -raw jenkins_instance_id)"
-   sudo cat /var/lib/jenkins/secrets/initialAdminPassword
-   ```
+| Action | Recreates Jenkins EC2? |
+|--------|------------------------|
+| Push `Jenkinsfile`, app code, docs | **No** |
+| GitHub Actions `terraform-checks` / `devsecops` on PR | **No** (validate/scan only) |
+| GitHub Actions `terraform-deploy` (`workflow_dispatch`) or local `terraform apply` | **Only if** something force-new changes (especially `user_data`) |
+| Change `terraform/modules/jenkins/templates/user_data.sh` then apply | **Yes** (`user_data_replace_on_change = true`) |
 
-3. Complete the Jenkins setup wizard.
+### What Terraform bootstrap gives you (automatic on new EC2)
 
-4. Confirm Jenkins is healthy:
-   - UI loads on port 8080
-   - You can create a Pipeline job
-   - Maven and Docker are available on the host:
-     ```bash
-     java -version
-     mvn -version
-     docker --version
-     ```
+From `user_data.sh`:
 
-5. In the setup wizard, install the suggested plugins (or at least Git + Pipeline).
+- Java 21 (Amazon Corretto), Maven, Git, Docker
+- Jenkins service on port **8080**
+- Jenkins user in the `docker` group
+- SonarQube Community container on port **9000** (`sonarqube:community`)
+- `vm.max_map_count=524288` for Elasticsearch inside SonarQube
+- Docker volumes: `sonarqube_data`, `sonarqube_extensions`, `sonarqube_logs`
 
-6. Create a Pipeline job pointing to this repository `Jenkinsfile`.
-   - Keep `RUN_SONAR=false`
-   - Keep `DEPLOY=false`
-   - For now, validate Checkout + Maven Test stages
+Security group also allows inbound **8080** and **9000** for lab access.
 
-## If Jenkins service fails
+### What is still **manual** (lost if EC2 is replaced)
 
-On the instance via SSM:
+- Jenkins setup wizard / admin password / chosen plugins
+- Jenkins credentials (e.g. `sonar-token`, GitHub creds)
+- Jenkins jobs (Pipeline config)
+- SonarQube admin password change + analysis token
+- GitHub webhook (if public IP changed)
 
-```bash
-sudo journalctl -u jenkins -n 100 --no-pager
-sudo tail -n 100 /var/log/jenkins/jenkins.log
-sudo systemctl status jenkins --no-pager
-```
+---
 
-Common recovery (Java 21 required by current Jenkins):
+## 0) Prerequisites (your Mac)
 
 ```bash
-sudo dnf install -y java-21-amazon-corretto java-21-amazon-corretto-devel
-JAVA_HOME_DIR="$(ls -d /usr/lib/jvm/java-21-amazon-corretto* | head -n 1)"
-sudo mkdir -p /etc/systemd/system/jenkins.service.d
-echo -e "[Service]\nEnvironment=\"JAVA_HOME=$JAVA_HOME_DIR\"" | sudo tee /etc/systemd/system/jenkins.service.d/override.conf
-sudo systemctl daemon-reload
-sudo systemctl restart jenkins
-sudo systemctl status jenkins --no-pager
+brew install --cask session-manager-plugin
 ```
 
-## Later phases
+```bash
+cd ~/Documents/marisol-devops-projects/marisol-jenkins-kubernetes-cicd/terraform
+```
 
-- **SonarCloud:** add token credential `sonar-token`, install Sonar plugin/scanner, set `RUN_SONAR=true`
-- **ECR / Docker / Trivy:** enable image build and scan
-- **Ansible + EKS:** enable deploy
+---
 
-## Notes
+## 1) Deploy / refresh infra
 
-- ECR, Ansible EC2, and EKS modules stay in the repo but are not applied in Phase 1.
-- SonarScanner is intentionally not installed yet.
+```bash
+terraform apply
+```
+
+Wait for apply + ~5–10 minutes for user-data (Jenkins + pulling Sonar image).
+
+```bash
+terraform output -raw jenkins_url
+terraform output -raw sonarqube_url
+terraform output -raw jenkins_instance_id
+```
+
+---
+
+## 2) Unlock Jenkins
+
+1. Open `jenkins_url` (port **8080**).
+2. Get the initial admin password:
+
+```bash
+aws ssm start-session --target "$(terraform output -raw jenkins_instance_id)"
+```
+
+```bash
+sudo cat /var/lib/jenkins/secrets/initialAdminPassword
+```
+
+3. Unlock Jenkins → install suggested plugins (Git + Pipeline at minimum) → create admin user.
+
+Health checks:
+
+```bash
+java -version
+mvn -version
+docker --version
+systemctl status jenkins --no-pager
+docker ps --filter name=sonarqube
+curl -s http://127.0.0.1:9000/api/system/status
+```
+
+---
+
+## 3) SonarQube first login
+
+1. Open `sonarqube_url` (port **9000**).
+2. Default: `admin` / `admin` → change password.
+3. Create a user token: avatar → **My Account** → **Security** → token name e.g. `jenkins`.
+
+Project creation is optional; the first pipeline analysis can create  
+`marisol-jenkins-kubernetes-cicd` automatically.
+
+---
+
+## 4) Jenkins credential for Sonar
+
+Jenkins → **Manage Jenkins** → **Credentials** → **(global)** → **Add Credentials**:
+
+- Kind: **Secret text**
+- Secret: *(Sonar token)*
+- ID: **`sonar-token`** (must match `Jenkinsfile`)
+
+No Sonar Jenkins plugin required (Maven `sonar:sonar` + quality gate wait).
+
+---
+
+## 5) Create the Pipeline job
+
+1. **New Item** → **Pipeline**.
+2. Definition: **Pipeline script from SCM** → Git → your repo URL + credentials.
+3. Branch: e.g. `*/feature/project3` or `*/main`.
+4. Script Path: `Jenkinsfile`.
+5. Save → **Build Now**.
+
+Stages: Checkout → Maven Test → SonarQube (`RUN_SONAR` defaults to `true`).
+
+---
+
+## 6) Optional: auto-build on push
+
+GitHub → **Settings** → **Webhooks** →  
+`http://<jenkins-public-ip>:8080/github-webhook/`
+
+---
+
+## 7) Checklist after EC2 replace
+
+Bootstrap brings Jenkins + Sonar container back. Still redo:
+
+- [ ] Unlock Jenkins + plugins + admin user  
+- [ ] Sonar first login + new token  
+- [ ] Jenkins credential `sonar-token`  
+- [ ] Recreate Pipeline job  
+- [ ] Update GitHub webhook if public IP changed  
+
+---
+
+## Manual Sonar recovery (only if container missing)
+
+Bootstrap normally starts Sonar. If you need to recreate it by hand:
+
+```bash
+sysctl -w vm.max_map_count=524288
+echo "vm.max_map_count=524288" > /etc/sysctl.d/99-sonarqube.conf
+docker volume create sonarqube_data
+docker volume create sonarqube_extensions
+docker volume create sonarqube_logs
+docker rm -f sonarqube 2>/dev/null || true
+docker run -d --name sonarqube --restart unless-stopped \
+  -p 9000:9000 \
+  -e SONAR_ES_BOOTSTRAP_CHECKS_DISABLE=true \
+  -v sonarqube_data:/opt/sonarqube/data \
+  -v sonarqube_extensions:/opt/sonarqube/extensions \
+  -v sonarqube_logs:/opt/sonarqube/logs \
+  sonarqube:community
+```
+
+Do **not** reuse an old LTS H2 volume with `sonarqube:community` (wipe `sonarqube_data` if you see H2 format errors).
+
+---
+
+## Troubleshooting
+
+```bash
+sudo tail -n 100 /var/log/user-data.log
+sudo systemctl status jenkins --no-pager
+docker logs --tail 80 sonarqube
+```
+
+AL2023 note: never `dnf install curl` alongside `curl-minimal` — it aborts the whole package transaction.
+
+---
+
+## Later
+
+- ECR / Docker / Trivy / Ansible / EKS stages back in `Jenkinsfile`
+- SonarCloud if you want GitHub PR decoration (Community does not decorate PRs)

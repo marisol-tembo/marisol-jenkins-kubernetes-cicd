@@ -8,10 +8,17 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   secret-scan:
     name: Gitleaks Secret Scan
     runs-on: ubuntu-latest
+    # gitleaks-action lists PR commits via the GitHub API
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -26,6 +33,8 @@ jobs:
   iac-scan:
     name: Checkov IaC Scan
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
