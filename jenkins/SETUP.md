@@ -35,7 +35,7 @@ Also from Terraform:
 
 - Jenkins setup wizard / admin password / chosen plugins
 - Jenkins credentials (e.g. `sonar-token`, GitHub creds)
-- Jenkins jobs (Pipeline config) including `ECR_REPOSITORY_URL` param
+- Jenkins jobs (Pipeline config)
 - SonarQube admin password change + analysis token
 - GitHub webhook (if public IP changed)
 
@@ -135,10 +135,12 @@ ECR auth uses the **instance IAM role** — no AWS access keys in Jenkins.
 On **Build with Parameters**:
 
 - `AWS_REGION`: `us-east-1`
-- `ECR_REPOSITORY_URL`: paste `terraform output -raw ecr_repository_url`
+- `ECR_REPOSITORY_NAME`: `jenkins-k8s-demo-app` (default; matches Terraform)
 - `RUN_SONAR`: `true` (default)
 
-Stages: Checkout → Maven Test → SonarQube → Package → Docker Build → Trivy Scan → Push to ECR.
+The pipeline **Resolve ECR** stage looks up the full repository URI with the instance IAM role (`aws ecr describe-repositories`) — you do not paste `ecr_repository_url` each run.
+
+Stages: Checkout → Maven Test → SonarQube → Package → Resolve ECR → Docker Build → Trivy Scan → Push to ECR.
 
 Image tag is `BUILD_NUMBER` only (ECR is immutable; no `:latest`).
 
@@ -159,7 +161,7 @@ Bootstrap brings Jenkins + Sonar + Trivy back (AWS CLI comes with AL2023). Still
 - [ ] Sonar first login + new token  
 - [ ] Jenkins credential `sonar-token`  
 - [ ] Recreate Pipeline job  
-- [ ] Set `ECR_REPOSITORY_URL` from terraform output  
+- [ ] Confirm `ECR_REPOSITORY_NAME` matches Terraform (default `jenkins-k8s-demo-app`)  
 - [ ] Update GitHub webhook if public IP changed  
 
 ---
