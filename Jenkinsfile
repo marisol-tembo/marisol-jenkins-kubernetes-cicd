@@ -218,7 +218,8 @@ cmds = [
   "mkdir -p /opt/ansible",
   "echo '%s' | base64 -d | tar -xzf - -C /opt/ansible" % b64,
   "cd /opt/ansible",
-  "ansible-playbook ansible/deploy.yml -e image_tag=%s -e ecr_repository_url=%s"
+  "export AWS_REGION=%s" % os.environ["AWS_REGION"],
+  "ansible-playbook -i localhost, ansible/deploy.yml -e image_tag=%s -e ecr_repository_url=%s"
   % (os.environ["IMAGE_TAG"], os.environ["ECR_REPOSITORY_URL"]),
 ]
 with open("/tmp/deploy-commands.json", "w", encoding="utf-8") as fh:

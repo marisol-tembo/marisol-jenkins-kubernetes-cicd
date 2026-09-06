@@ -19,6 +19,7 @@
       ansible.builtin.command: >
         aws eks update-kubeconfig
         --name {{ eks_cluster_name }}
+        --region {{ lookup('env', 'AWS_REGION') | default('us-east-1', true) }}
         --kubeconfig {{ kubeconfig_path }}
       changed_when: true
 

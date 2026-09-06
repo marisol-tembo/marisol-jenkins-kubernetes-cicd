@@ -48,6 +48,17 @@ module "ansible" {
   depends_on = [module.eks]
 }
 
+# In-VPC clients resolve the private EKS API ENI. Allow Ansible → cluster SG :443.
+resource "aws_security_group_rule" "eks_api_from_ansible" {
+  type                     = "ingress"
+  description              = "HTTPS from Ansible to EKS private API endpoint"
+  from_port                = 443
+  to_port                  = 443
+  protocol                 = "tcp"
+  security_group_id        = module.eks.cluster_security_group_id
+  source_security_group_id = module.security.ansible_security_group_id
+}
+
 # Allow Ansible instance role to use kubectl against the cluster (EKS Access Entries API)
 resource "aws_eks_access_entry" "ansible" {
   cluster_name  = module.eks.cluster_name
