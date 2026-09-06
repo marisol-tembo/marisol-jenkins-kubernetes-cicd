@@ -1,4 +1,4 @@
-# Phase 1 runbook — Jenkins + SonarQube on EC2
+# Phase 2 runbook — Jenkins + SonarQube + ECR
 
 This is the step-by-step path after a fresh `terraform apply`, or after the Jenkins EC2 is replaced.
 
@@ -12,25 +12,30 @@ This is the step-by-step path after a fresh `terraform apply`, or after the Jenk
 | GitHub Actions `terraform-checks` / `devsecops` on PR | **No** (validate/scan only) |
 | GitHub Actions `terraform-deploy` (`workflow_dispatch`) or local `terraform apply` | **Only if** something force-new changes (especially `user_data`) |
 | Change `terraform/modules/jenkins/templates/user_data.sh` then apply | **Yes** (`user_data_replace_on_change = true`) |
+| IAM / ECR / security group only | **No** (role updates apply to the running instance) |
 
 ### What Terraform bootstrap gives you (automatic on new EC2)
 
 From `user_data.sh`:
 
-- Java 21 (Amazon Corretto), Maven, Git, Docker
+- Java 21 (Amazon Corretto), Maven, Git, Docker, Trivy
+- AWS CLI (already on AL2023 AMI; used for ECR login)
 - Jenkins service on port **8080**
 - Jenkins user in the `docker` group
 - SonarQube Community container on port **9000** (`sonarqube:community`)
 - `vm.max_map_count=524288` for Elasticsearch inside SonarQube
 - Docker volumes: `sonarqube_data`, `sonarqube_extensions`, `sonarqube_logs`
 
-Security group also allows inbound **8080** and **9000** for lab access.
+Also from Terraform:
+
+- ECR repository (immutable tags; Jenkins role can push/pull that repo)
+- Security group inbound **8080** and **9000**
 
 ### What is still **manual** (lost if EC2 is replaced)
 
 - Jenkins setup wizard / admin password / chosen plugins
 - Jenkins credentials (e.g. `sonar-token`, GitHub creds)
-- Jenkins jobs (Pipeline config)
+- Jenkins jobs (Pipeline config) including `ECR_REPOSITORY_URL` param
 - SonarQube admin password change + analysis token
 - GitHub webhook (if public IP changed)
 
@@ -54,11 +59,12 @@ cd ~/Documents/marisol-devops-projects/marisol-jenkins-kubernetes-cicd/terraform
 terraform apply
 ```
 
-Wait for apply + ~5–10 minutes for user-data (Jenkins + pulling Sonar image).
+Wait for apply + ~5–10 minutes for user-data (Jenkins + Sonar image + Trivy).
 
 ```bash
 terraform output -raw jenkins_url
 terraform output -raw sonarqube_url
+terraform output -raw ecr_repository_url
 terraform output -raw jenkins_instance_id
 ```
 
@@ -85,6 +91,8 @@ Health checks:
 java -version
 mvn -version
 docker --version
+aws --version
+trivy --version
 systemctl status jenkins --no-pager
 docker ps --filter name=sonarqube
 curl -s http://127.0.0.1:9000/api/system/status
@@ -111,7 +119,8 @@ Jenkins → **Manage Jenkins** → **Credentials** → **(global)** → **Add Cr
 - Secret: *(Sonar token)*
 - ID: **`sonar-token`** (must match `Jenkinsfile`)
 
-No Sonar Jenkins plugin required (Maven `sonar:sonar` + quality gate wait).
+No Sonar Jenkins plugin required (Maven `sonar:sonar` + quality gate wait).  
+ECR auth uses the **instance IAM role** — no AWS access keys in Jenkins.
 
 ---
 
@@ -121,9 +130,17 @@ No Sonar Jenkins plugin required (Maven `sonar:sonar` + quality gate wait).
 2. Definition: **Pipeline script from SCM** → Git → your repo URL + credentials.
 3. Branch: e.g. `*/feature/project3` or `*/main`.
 4. Script Path: `Jenkinsfile`.
-5. Save → **Build Now**.
+5. Save.
 
-Stages: Checkout → Maven Test → SonarQube (`RUN_SONAR` defaults to `true`).
+On **Build with Parameters**:
+
+- `AWS_REGION`: `us-east-1`
+- `ECR_REPOSITORY_URL`: paste `terraform output -raw ecr_repository_url`
+- `RUN_SONAR`: `true` (default)
+
+Stages: Checkout → Maven Test → SonarQube → Package → Docker Build → Trivy Scan → Push to ECR.
+
+Image tag is `BUILD_NUMBER` only (ECR is immutable; no `:latest`).
 
 ---
 
@@ -136,12 +153,13 @@ GitHub → **Settings** → **Webhooks** →
 
 ## 7) Checklist after EC2 replace
 
-Bootstrap brings Jenkins + Sonar container back. Still redo:
+Bootstrap brings Jenkins + Sonar + Trivy back (AWS CLI comes with AL2023). Still redo:
 
 - [ ] Unlock Jenkins + plugins + admin user  
 - [ ] Sonar first login + new token  
 - [ ] Jenkins credential `sonar-token`  
 - [ ] Recreate Pipeline job  
+- [ ] Set `ECR_REPOSITORY_URL` from terraform output  
 - [ ] Update GitHub webhook if public IP changed  
 
 ---
@@ -176,13 +194,17 @@ Do **not** reuse an old LTS H2 volume with `sonarqube:community` (wipe `sonarqub
 sudo tail -n 100 /var/log/user-data.log
 sudo systemctl status jenkins --no-pager
 docker logs --tail 80 sonarqube
+aws sts get-caller-identity
+aws ecr describe-repositories --repository-names "$(terraform output -raw ecr_repository_url | awk -F/ '{print $NF}')"
 ```
 
 AL2023 note: never `dnf install curl` alongside `curl-minimal` — it aborts the whole package transaction.
+
+Trivy failing the build on HIGH/CRITICAL is expected until base image / deps are cleaned up.
 
 ---
 
 ## Later
 
-- ECR / Docker / Trivy / Ansible / EKS stages back in `Jenkinsfile`
+- Ansible EC2 + EKS deploy stages
 - SonarCloud if you want GitHub PR decoration (Community does not decorate PRs)

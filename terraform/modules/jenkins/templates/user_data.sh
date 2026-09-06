@@ -9,6 +9,7 @@ dnf update -y || echo "dnf update had warnings; continuing"
 
 # Current Jenkins LTS requires Java 21+
 # AL2023 ships curl-minimal; installing curl conflicts and aborts the whole transaction.
+# AWS CLI is already present on AL2023 (used for ecr get-login-password).
 dnf install -y \
   java-21-amazon-corretto \
   java-21-amazon-corretto-devel \
@@ -18,6 +19,20 @@ dnf install -y \
   wget \
   unzip \
   tar
+
+# Trivy for container image scanning in the Jenkins pipeline
+rpm --import https://aquasecurity.github.io/trivy-repo/rpm/public.key
+cat > /etc/yum.repos.d/trivy.repo <<'EOF'
+[trivy]
+name=Trivy repository
+baseurl=https://aquasecurity.github.io/trivy-repo/rpm/releases/$basearch/
+gpgcheck=1
+enabled=1
+gpgkey=https://aquasecurity.github.io/trivy-repo/rpm/public.key
+EOF
+dnf install -y trivy
+trivy --version
+aws --version
 
 JAVA_HOME_DIR="$(ls -d /usr/lib/jvm/java-21-amazon-corretto* | head -n 1)"
 echo "Using JAVA_HOME_DIR=$${JAVA_HOME_DIR}"
@@ -100,4 +115,4 @@ done
 docker ps --filter name=sonarqube --no-trunc || true
 curl -s http://127.0.0.1:9000/api/system/status || true
 
-echo "Jenkins + SonarQube bootstrap complete at $(date -u)"
+echo "Jenkins + SonarQube + ECR tools bootstrap complete at $(date -u)"

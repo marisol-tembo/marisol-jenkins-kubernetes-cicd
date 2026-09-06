@@ -17,3 +17,8 @@ variable "instance_type" {
   description = "Jenkins EC2 instance type"
   type        = string
 }
+
+variable "ecr_repository_arn" {
+  description = "ECR repository ARN Jenkins may push/pull"
+  type        = string
+}

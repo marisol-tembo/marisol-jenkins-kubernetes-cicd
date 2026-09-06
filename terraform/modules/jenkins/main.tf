@@ -39,6 +39,39 @@ resource "aws_iam_role_policy_attachment" "jenkins_ssm" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
+resource "aws_iam_role_policy" "jenkins_ecr" {
+  name = "${var.name}-jenkins-ecr"
+  role = aws_iam_role.jenkins.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid      = "EcrAuthToken"
+        Effect   = "Allow"
+        Action   = ["ecr:GetAuthorizationToken"]
+        Resource = "*"
+      },
+      {
+        Sid    = "EcrPushPull"
+        Effect = "Allow"
+        Action = [
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchGetImage",
+          "ecr:PutImage",
+          "ecr:InitiateLayerUpload",
+          "ecr:UploadLayerPart",
+          "ecr:CompleteLayerUpload",
+          "ecr:DescribeRepositories",
+          "ecr:ListImages"
+        ]
+        Resource = var.ecr_repository_arn
+      }
+    ]
+  })
+}
+
 resource "aws_iam_instance_profile" "jenkins" {
   name = "${var.name}-jenkins-profile"
   role = aws_iam_role.jenkins.name
