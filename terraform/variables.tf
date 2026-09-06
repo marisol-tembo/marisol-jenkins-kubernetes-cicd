@@ -19,7 +19,7 @@ variable "vpc_cidr_block" {
 variable "jenkins_instance_type" {
   description = "EC2 instance type for Jenkins"
   type        = string
-  default     = "t3.medium"
+  default     = "t3.xlarge"
 }
 
 variable "ansible_instance_type" {
