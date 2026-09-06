@@ -24,15 +24,15 @@ module "ecr" {
 module "eks" {
   source = "./modules/eks"
 
-  name                    = var.name
-  private_subnet_ids      = module.vpc.private_app_subnet_ids
-  public_subnet_ids       = module.vpc.public_subnet_ids
+  name                       = var.name
+  private_subnet_ids         = module.vpc.private_app_subnet_ids
+  public_subnet_ids          = module.vpc.public_subnet_ids
   cluster_security_group_ids = []
-  node_security_group_id  = module.security.eks_nodes_security_group_id
-  node_instance_type      = var.eks_node_instance_type
-  node_desired_size       = var.eks_node_desired_size
-  node_min_size           = var.eks_node_min_size
-  node_max_size           = var.eks_node_max_size
+  node_security_group_id     = module.security.eks_nodes_security_group_id
+  node_instance_type         = var.eks_node_instance_type
+  node_desired_size          = var.eks_node_desired_size
+  node_min_size              = var.eks_node_min_size
+  node_max_size              = var.eks_node_max_size
 }
 
 module "ansible" {
