@@ -5,8 +5,12 @@ metadata:
   namespace: demo
   labels:
     app: demo-app
+  annotations:
+    # Internet-facing NLB in public subnets (tagged kubernetes.io/role/elb=1)
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+    service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
 spec:
-  type: ClusterIP
+  type: LoadBalancer
   selector:
     app: demo-app
   ports:
