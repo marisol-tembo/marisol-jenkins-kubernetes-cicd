@@ -3,10 +3,9 @@ pipeline {
 
   environment {
     // Matches Terraform var.name — used for tag discovery
-    PROJECT      = "jenkins-k8s"
-    IMAGE_TAG    = "${env.BUILD_NUMBER}"
-    APP_DIR      = "app"
-    GIT_REPO_URL = "https://github.com/marisol-tembo/marisol-jenkins-kubernetes-cicd.git"
+    PROJECT   = "jenkins-k8s"
+    IMAGE_TAG = "${env.BUILD_NUMBER}"
+    APP_DIR   = "app"
   }
 
   parameters {
@@ -191,21 +190,33 @@ pipeline {
           env.EKS_CLUSTER_NAME = eksArn.tokenize('/').last()
           echo "Deploy Ansible=${env.ANSIBLE_INSTANCE_ID} EKS=${env.EKS_CLUSTER_NAME}"
         }
+        // Private GitHub repos can't be cloned on Ansible without creds.
+        // Ship ansible/ + k8s/ from this workspace over SSM instead.
         sh '''
-          cat > /tmp/deploy-commands.json <<EOF
-{
-  "commands": [
-    "set -euxo pipefail",
-    "export HOME=/root",
-    "export KUBECONFIG=/root/.kube/config",
-    "export EKS_CLUSTER_NAME=${EKS_CLUSTER_NAME}",
-    "mkdir -p /opt/ansible && cd /opt/ansible",
-    "if [ ! -d repo ]; then git clone ${GIT_REPO_URL} repo; fi",
-    "cd repo && git fetch --all && git reset --hard ${GIT_COMMIT_SHA}",
-    "ansible-playbook ansible/deploy.yml -e image_tag=${IMAGE_TAG} -e ecr_repository_url=${ECR_REPOSITORY_URL}"
-  ]
-}
-EOF
+          set -euxo pipefail
+          tar -czf /tmp/ansible-deploy.tgz ansible k8s
+          export BUNDLE_B64
+          BUNDLE_B64=$(base64 -w0 /tmp/ansible-deploy.tgz)
+
+          python3 - <<'PY'
+import json, os
+
+b64 = os.environ["BUNDLE_B64"]
+cmds = [
+  "set -euxo pipefail",
+  "export HOME=/root",
+  "export KUBECONFIG=/root/.kube/config",
+  "export EKS_CLUSTER_NAME=%s" % os.environ["EKS_CLUSTER_NAME"],
+  "export PATH=/usr/local/bin:/usr/bin:$PATH",
+  "mkdir -p /opt/ansible",
+  "echo '%s' | base64 -d | tar -xzf - -C /opt/ansible" % b64,
+  "cd /opt/ansible",
+  "ansible-playbook ansible/deploy.yml -e image_tag=%s -e ecr_repository_url=%s"
+  % (os.environ["IMAGE_TAG"], os.environ["ECR_REPOSITORY_URL"]),
+]
+with open("/tmp/deploy-commands.json", "w", encoding="utf-8") as fh:
+    json.dump({"commands": cmds}, fh)
+PY
 
           COMMAND_ID=$(aws ssm send-command \
             --region "${AWS_REGION}" \
@@ -218,10 +229,14 @@ EOF
 
           echo "SSM Command ID: ${COMMAND_ID}"
 
+          # Always fetch logs even when the waiter sees Failed
+          set +e
           aws ssm wait command-executed \
             --region "${AWS_REGION}" \
             --command-id "${COMMAND_ID}" \
             --instance-id "${ANSIBLE_INSTANCE_ID}"
+          WAIT_RC=$?
+          set -e
 
           STATUS=$(aws ssm get-command-invocation \
             --region "${AWS_REGION}" \
@@ -230,7 +245,7 @@ EOF
             --query "Status" \
             --output text)
 
-          echo "Ansible deploy status: ${STATUS}"
+          echo "Ansible deploy status: ${STATUS} (wait_rc=${WAIT_RC})"
           aws ssm get-command-invocation \
             --region "${AWS_REGION}" \
             --command-id "${COMMAND_ID}" \
