@@ -142,10 +142,10 @@ ansible-playbook ansible/rollback.yml
 |----------|---------|
 | EKS control plane | ~$0.10/hr |
 | EKS nodes (2x t3.small) | ~$0.04/hr |
-| Jenkins t3.medium | ~$0.04/hr |
+| Jenkins t3.xlarge | ~$0.17/hr |
 | Ansible t3.small | ~$0.02/hr |
 | NAT Gateway | ~$0.045/hr |
-| **Total** | **~$0.25/hr** |
+| **Total** | **~$0.38/hr** |
 
 Destroy when finished:
 
