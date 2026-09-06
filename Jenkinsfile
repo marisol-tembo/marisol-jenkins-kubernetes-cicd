@@ -2,15 +2,15 @@ pipeline {
   agent any
 
   environment {
-    AWS_REGION         = "${params.AWS_REGION}"
-    ECR_REPOSITORY_URL = "${params.ECR_REPOSITORY_URL}"
-    IMAGE_TAG          = "${env.BUILD_NUMBER}"
-    APP_DIR            = "app"
+    AWS_REGION           = "${params.AWS_REGION}"
+    ECR_REPOSITORY_NAME  = "${params.ECR_REPOSITORY_NAME}"
+    IMAGE_TAG            = "${env.BUILD_NUMBER}"
+    APP_DIR              = "app"
   }
 
   parameters {
     string(name: 'AWS_REGION', defaultValue: 'us-east-1', description: 'AWS region for ECR')
-    string(name: 'ECR_REPOSITORY_URL', defaultValue: '', description: 'Full ECR repository URL from: terraform output -raw ecr_repository_url')
+    string(name: 'ECR_REPOSITORY_NAME', defaultValue: 'jenkins-k8s-demo-app', description: 'ECR repository name (Terraform ecr_repository_name)')
     booleanParam(name: 'RUN_SONAR', defaultValue: true, description: 'Run SonarQube analysis on the Jenkins host')
   }
 
@@ -67,10 +67,28 @@ pipeline {
       }
     }
 
+    stage('Resolve ECR') {
+      steps {
+        script {
+          // Discover repo URI via instance role — no manual URL paste
+          env.ECR_REPOSITORY_URL = sh(
+            script: '''
+              aws ecr describe-repositories \
+                --repository-names "${ECR_REPOSITORY_NAME}" \
+                --region "${AWS_REGION}" \
+                --query 'repositories[0].repositoryUri' \
+                --output text
+            ''',
+            returnStdout: true
+          ).trim()
+          echo "Using ECR repository: ${env.ECR_REPOSITORY_URL}"
+        }
+      }
+    }
+
     stage('Docker Build') {
       steps {
         sh '''
-          test -n "${ECR_REPOSITORY_URL}"
           docker build -t ${ECR_REPOSITORY_URL}:${IMAGE_TAG} ${APP_DIR}
         '''
       }
@@ -97,7 +115,7 @@ pipeline {
 
   post {
     success {
-      echo "Pipeline succeeded. Image: ${ECR_REPOSITORY_URL}:${IMAGE_TAG}"
+      echo "Pipeline succeeded. Image: ${env.ECR_REPOSITORY_URL}:${IMAGE_TAG}"
     }
     failure {
       echo "Pipeline failed. Check Maven, SonarQube quality gate, Trivy, or ECR push."
