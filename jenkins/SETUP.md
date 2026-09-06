@@ -1,6 +1,8 @@
-# Phase 2 runbook — Jenkins + SonarQube + ECR
+# Phase 3 runbook — Jenkins + SonarQube + ECR + Ansible + EKS
 
 This is the step-by-step path after a fresh `terraform apply`, or after the Jenkins EC2 is replaced.
+
+**Cost warning:** EKS control plane is ~$0.10/hour even with zero pods. Destroy when idle.
 
 ## Does a git push recreate Jenkins?
 
@@ -14,29 +16,22 @@ This is the step-by-step path after a fresh `terraform apply`, or after the Jenk
 | Change `terraform/modules/jenkins/templates/user_data.sh` then apply | **Yes** (`user_data_replace_on_change = true`) |
 | IAM / ECR / security group only | **No** (role updates apply to the running instance) |
 
-### What Terraform bootstrap gives you (automatic on new EC2)
+### What Terraform deploys (Phase 3)
 
-From `user_data.sh`:
+- VPC + NAT + security groups
+- ECR repository
+- Jenkins EC2 (public): Java, Maven, Docker, Trivy, SonarQube container, AWS CLI
+- Ansible EC2 (private): Ansible, kubectl, kubeconfig
+- EKS cluster + managed node group
+- EKS access entry for the Ansible IAM role (cluster admin for lab)
+- Jenkins IAM: ECR push + SSM SendCommand to Ansible
 
-- Java 21 (Amazon Corretto), Maven, Git, Docker, Trivy
-- AWS CLI (already on AL2023 AMI; used for ECR login)
-- Jenkins service on port **8080**
-- Jenkins user in the `docker` group
-- SonarQube Community container on port **9000** (`sonarqube:community`)
-- `vm.max_map_count=524288` for Elasticsearch inside SonarQube
-- Docker volumes: `sonarqube_data`, `sonarqube_extensions`, `sonarqube_logs`
+### What is still **manual** (lost if Jenkins EC2 is replaced)
 
-Also from Terraform:
-
-- ECR repository (immutable tags; Jenkins role can push/pull that repo)
-- Security group inbound **8080** and **9000**
-
-### What is still **manual** (lost if EC2 is replaced)
-
-- Jenkins setup wizard / admin password / chosen plugins
-- Jenkins credentials (e.g. `sonar-token`, GitHub creds)
-- Jenkins jobs (Pipeline config)
-- SonarQube admin password change + analysis token
+- Jenkins setup wizard / admin password / plugins
+- Jenkins credentials (`sonar-token`, GitHub)
+- Jenkins Pipeline job
+- SonarQube admin password + token
 - GitHub webhook (if public IP changed)
 
 ---
@@ -53,140 +48,86 @@ cd ~/Documents/marisol-devops-projects/marisol-jenkins-kubernetes-cicd/terraform
 
 ---
 
-## 1) Deploy / refresh infra
+## 1) Deploy infra
 
 ```bash
 terraform apply
 ```
 
-Wait for apply + ~5–10 minutes for user-data (Jenkins + Sonar image + Trivy).
+EKS can take **10–15+ minutes**. Then:
 
 ```bash
 terraform output -raw jenkins_url
 terraform output -raw sonarqube_url
 terraform output -raw ecr_repository_url
+terraform output -raw ansible_instance_id
+terraform output -raw eks_cluster_name
 terraform output -raw jenkins_instance_id
 ```
 
 ---
 
-## 2) Unlock Jenkins
+## 2) Unlock Jenkins + Sonar (same as Phase 2)
 
-1. Open `jenkins_url` (port **8080**).
-2. Get the initial admin password:
+1. Open `jenkins_url` → unlock with SSM initialAdminPassword
+2. Install Git + Pipeline plugins → create admin
+3. SonarQube: change `admin` password → create token
+4. Jenkins credential ID **`sonar-token`** (Secret text)
 
-```bash
-aws ssm start-session --target "$(terraform output -raw jenkins_instance_id)"
-```
-
-```bash
-sudo cat /var/lib/jenkins/secrets/initialAdminPassword
-```
-
-3. Unlock Jenkins → install suggested plugins (Git + Pipeline at minimum) → create admin user.
-
-Health checks:
+Health on Jenkins host:
 
 ```bash
-java -version
-mvn -version
-docker --version
-aws --version
-trivy --version
-systemctl status jenkins --no-pager
+java -version && mvn -version && docker --version && trivy --version && aws --version
 docker ps --filter name=sonarqube
 curl -s http://127.0.0.1:9000/api/system/status
 ```
 
 ---
 
-## 3) SonarQube first login
+## 3) Pipeline job
 
-1. Open `sonarqube_url` (port **9000**).
-2. Default: `admin` / `admin` → change password.
-3. Create a user token: avatar → **My Account** → **Security** → token name e.g. `jenkins`.
+1. **New Item** → Pipeline from SCM → this repo / branch / `Jenkinsfile`
+2. Build with parameters:
 
-Project creation is optional; the first pipeline analysis can create  
-`marisol-jenkins-kubernetes-cicd` automatically.
+| Param | Typical value |
+|-------|----------------|
+| `RUN_SONAR` | `true` |
+| `DEPLOY` | `false` until EKS is Ready, then `true` |
 
----
+Everything else is discovered automatically:
 
-## 4) Jenkins credential for Sonar
+- **AWS region** — from EC2 instance metadata  
+- **ECR** — tags `Project=jenkins-k8s`, `Role=ecr`  
+- **Ansible instance** — tags `Project=jenkins-k8s`, `Role=ansible`  
+- **EKS cluster** — tags `Project=jenkins-k8s`, `Role=eks`  
+- **Git revision for Ansible** — same commit Jenkins built (`git rev-parse HEAD`)
 
-Jenkins → **Manage Jenkins** → **Credentials** → **(global)** → **Add Credentials**:
-
-- Kind: **Secret text**
-- Secret: *(Sonar token)*
-- ID: **`sonar-token`** (must match `Jenkinsfile`)
-
-No Sonar Jenkins plugin required (Maven `sonar:sonar` + quality gate wait).  
-ECR auth uses the **instance IAM role** — no AWS access keys in Jenkins.
+Stages: Checkout → Resolve AWS → Maven → Sonar → Package → Resolve ECR → Docker → Trivy → Push → Deploy (if enabled).
 
 ---
 
-## 5) Create the Pipeline job
-
-1. **New Item** → **Pipeline**.
-2. Definition: **Pipeline script from SCM** → Git → your repo URL + credentials.
-3. Branch: e.g. `*/feature/project3` or `*/main`.
-4. Script Path: `Jenkinsfile`.
-5. Save.
-
-On **Build with Parameters**:
-
-- `AWS_REGION`: `us-east-1`
-- `ECR_REPOSITORY_NAME`: `jenkins-k8s-demo-app` (default; matches Terraform)
-- `RUN_SONAR`: `true` (default)
-
-The pipeline **Resolve ECR** stage looks up the full repository URI with the instance IAM role (`aws ecr describe-repositories`) — you do not paste `ecr_repository_url` each run.
-
-Stages: Checkout → Maven Test → SonarQube → Package → Resolve ECR → Docker Build → Trivy Scan → Push to ECR.
-
-Image tag is `BUILD_NUMBER` only (ECR is immutable; no `:latest`).
-
----
-
-## 6) Optional: auto-build on push
-
-GitHub → **Settings** → **Webhooks** →  
-`http://<jenkins-public-ip>:8080/github-webhook/`
-
----
-
-## 7) Checklist after EC2 replace
-
-Bootstrap brings Jenkins + Sonar + Trivy back (AWS CLI comes with AL2023). Still redo:
-
-- [ ] Unlock Jenkins + plugins + admin user  
-- [ ] Sonar first login + new token  
-- [ ] Jenkins credential `sonar-token`  
-- [ ] Recreate Pipeline job  
-- [ ] Confirm `ECR_REPOSITORY_NAME` matches Terraform (default `jenkins-k8s-demo-app`)  
-- [ ] Update GitHub webhook if public IP changed  
-
----
-
-## Manual Sonar recovery (only if container missing)
-
-Bootstrap normally starts Sonar. If you need to recreate it by hand:
+## 4) Verify deploy
 
 ```bash
-sysctl -w vm.max_map_count=524288
-echo "vm.max_map_count=524288" > /etc/sysctl.d/99-sonarqube.conf
-docker volume create sonarqube_data
-docker volume create sonarqube_extensions
-docker volume create sonarqube_logs
-docker rm -f sonarqube 2>/dev/null || true
-docker run -d --name sonarqube --restart unless-stopped \
-  -p 9000:9000 \
-  -e SONAR_ES_BOOTSTRAP_CHECKS_DISABLE=true \
-  -v sonarqube_data:/opt/sonarqube/data \
-  -v sonarqube_extensions:/opt/sonarqube/extensions \
-  -v sonarqube_logs:/opt/sonarqube/logs \
-  sonarqube:community
+aws eks update-kubeconfig --name "$(terraform output -raw eks_cluster_name)" --region us-east-1
+kubectl -n demo get deploy,pods,svc
 ```
 
-Do **not** reuse an old LTS H2 volume with `sonarqube:community` (wipe `sonarqube_data` if you see H2 format errors).
+Rollback on the Ansible host (via SSM):
+
+```bash
+cd /opt/ansible/repo && ansible-playbook ansible/rollback.yml
+```
+
+---
+
+## 5) Checklist after Jenkins EC2 replace
+
+- [ ] Unlock Jenkins + plugins + admin
+- [ ] Sonar login + token + `sonar-token` credential
+- [ ] Recreate Pipeline job
+- [ ] Update webhook if IP changed
+- [ ] Ansible/EKS usually survive if only Jenkins was replaced
 
 ---
 
@@ -194,19 +135,17 @@ Do **not** reuse an old LTS H2 volume with `sonarqube:community` (wipe `sonarqub
 
 ```bash
 sudo tail -n 100 /var/log/user-data.log
-sudo systemctl status jenkins --no-pager
-docker logs --tail 80 sonarqube
-aws sts get-caller-identity
-aws ecr describe-repositories --repository-names "$(terraform output -raw ecr_repository_url | awk -F/ '{print $NF}')"
+aws ssm describe-instance-information --filters "Key=InstanceIds,Values=$(terraform output -raw ansible_instance_id)"
+kubectl -n demo describe pods
+kubectl -n demo get events --sort-by='.lastTimestamp'
 ```
 
-AL2023 note: never `dnf install curl` alongside `curl-minimal` — it aborts the whole package transaction.
-
-Trivy failing the build on HIGH/CRITICAL is expected until base image / deps are cleaned up.
+AL2023: never `dnf install curl` (conflicts with `curl-minimal`).
 
 ---
 
-## Later
+## Later / production upgrades
 
-- Ansible EC2 + EKS deploy stages
-- SonarCloud if you want GitHub PR decoration (Community does not decorate PRs)
+- Narrow EKS access policy (not cluster admin)
+- Helm or Argo CD instead of Ansible apply
+- Private Jenkins + ALB auth

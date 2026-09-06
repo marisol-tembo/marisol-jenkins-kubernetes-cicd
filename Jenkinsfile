@@ -2,16 +2,16 @@ pipeline {
   agent any
 
   environment {
-    AWS_REGION           = "${params.AWS_REGION}"
-    ECR_REPOSITORY_NAME  = "${params.ECR_REPOSITORY_NAME}"
-    IMAGE_TAG            = "${env.BUILD_NUMBER}"
-    APP_DIR              = "app"
+    // Matches Terraform var.name — used for tag discovery
+    PROJECT      = "jenkins-k8s"
+    IMAGE_TAG    = "${env.BUILD_NUMBER}"
+    APP_DIR      = "app"
+    GIT_REPO_URL = "https://github.com/marisol-tembo/marisol-jenkins-kubernetes-cicd.git"
   }
 
   parameters {
-    string(name: 'AWS_REGION', defaultValue: 'us-east-1', description: 'AWS region for ECR')
-    string(name: 'ECR_REPOSITORY_NAME', defaultValue: 'jenkins-k8s-demo-app', description: 'ECR repository name (Terraform ecr_repository_name)')
-    booleanParam(name: 'RUN_SONAR', defaultValue: true, description: 'Run SonarQube analysis on the Jenkins host')
+    booleanParam(name: 'RUN_SONAR', defaultValue: true, description: 'Run SonarQube analysis')
+    booleanParam(name: 'DEPLOY', defaultValue: false, description: 'Deploy to EKS via Ansible SSM (tag Role=ansible)')
   }
 
   options {
@@ -23,6 +23,28 @@ pipeline {
     stage('Checkout') {
       steps {
         checkout scm
+      }
+    }
+
+    stage('Resolve AWS context') {
+      steps {
+        script {
+          // Region from instance metadata (IMDSv2) — no AWS_REGION parameter
+          env.AWS_REGION = sh(
+            script: '''
+              TOKEN=$(curl -fsS -X PUT "http://169.254.169.254/latest/api/token" \
+                -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+              curl -fsS -H "X-aws-ec2-metadata-token: $TOKEN" \
+                http://169.254.169.254/latest/meta-data/placement/region
+            ''',
+            returnStdout: true
+          ).trim()
+
+          // Commit Jenkins built — Ansible checks out the same revision
+          env.GIT_COMMIT_SHA = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
+
+          echo "AWS_REGION=${env.AWS_REGION} PROJECT=${env.PROJECT} GIT_COMMIT=${env.GIT_COMMIT_SHA}"
+        }
       }
     }
 
@@ -70,15 +92,30 @@ pipeline {
     stage('Resolve ECR') {
       steps {
         script {
-          // Discover repo URI via instance role — no manual URL paste
-          env.ECR_REPOSITORY_URL = sh(
+          // Discover ECR by Project + Role tags (no repository name parameter)
+          def ecrArn = sh(
             script: '''
-              aws ecr describe-repositories \
-                --repository-names "${ECR_REPOSITORY_NAME}" \
+              aws resourcegroupstaggingapi get-resources \
                 --region "${AWS_REGION}" \
-                --query 'repositories[0].repositoryUri' \
+                --resource-type-filters ecr:repository \
+                --tag-filters Key=Project,Values=${PROJECT} Key=Role,Values=ecr \
+                --query 'ResourceTagMappingList[0].ResourceARN' \
                 --output text
             ''',
+            returnStdout: true
+          ).trim()
+          if (!ecrArn || ecrArn == 'None') {
+            error("No ECR repo tagged Project=${env.PROJECT} Role=ecr")
+          }
+          def repoName = ecrArn.tokenize('/').last()
+          env.ECR_REPOSITORY_URL = sh(
+            script: """
+              aws ecr describe-repositories \
+                --region "${AWS_REGION}" \
+                --repository-names "${repoName}" \
+                --query 'repositories[0].repositoryUri' \
+                --output text
+            """,
             returnStdout: true
           ).trim()
           echo "Using ECR repository: ${env.ECR_REPOSITORY_URL}"
@@ -111,6 +148,100 @@ pipeline {
         '''
       }
     }
+
+    stage('Deploy via Ansible') {
+      when {
+        expression { return params.DEPLOY }
+      }
+      steps {
+        script {
+          // Find Ansible EC2 by Project + Role tags
+          env.ANSIBLE_INSTANCE_ID = sh(
+            script: '''
+              aws ec2 describe-instances \
+                --region "${AWS_REGION}" \
+                --filters \
+                  "Name=tag:Project,Values=${PROJECT}" \
+                  "Name=tag:Role,Values=ansible" \
+                  "Name=instance-state-name,Values=running" \
+                --query 'Reservations[0].Instances[0].InstanceId' \
+                --output text
+            ''',
+            returnStdout: true
+          ).trim()
+          if (!env.ANSIBLE_INSTANCE_ID || env.ANSIBLE_INSTANCE_ID == 'None') {
+            error("No running Ansible instance with tags Project=${env.PROJECT} Role=ansible")
+          }
+
+          // Find EKS cluster by Project + Role tags
+          def eksArn = sh(
+            script: '''
+              aws resourcegroupstaggingapi get-resources \
+                --region "${AWS_REGION}" \
+                --resource-type-filters eks:cluster \
+                --tag-filters Key=Project,Values=${PROJECT} Key=Role,Values=eks \
+                --query 'ResourceTagMappingList[0].ResourceARN' \
+                --output text
+            ''',
+            returnStdout: true
+          ).trim()
+          if (!eksArn || eksArn == 'None') {
+            error("No EKS cluster tagged Project=${env.PROJECT} Role=eks")
+          }
+          env.EKS_CLUSTER_NAME = eksArn.tokenize('/').last()
+          echo "Deploy Ansible=${env.ANSIBLE_INSTANCE_ID} EKS=${env.EKS_CLUSTER_NAME}"
+        }
+        sh '''
+          cat > /tmp/deploy-commands.json <<EOF
+{
+  "commands": [
+    "set -euxo pipefail",
+    "export HOME=/root",
+    "export KUBECONFIG=/root/.kube/config",
+    "export EKS_CLUSTER_NAME=${EKS_CLUSTER_NAME}",
+    "mkdir -p /opt/ansible && cd /opt/ansible",
+    "if [ ! -d repo ]; then git clone ${GIT_REPO_URL} repo; fi",
+    "cd repo && git fetch --all && git reset --hard ${GIT_COMMIT_SHA}",
+    "ansible-playbook ansible/deploy.yml -e image_tag=${IMAGE_TAG} -e ecr_repository_url=${ECR_REPOSITORY_URL}"
+  ]
+}
+EOF
+
+          COMMAND_ID=$(aws ssm send-command \
+            --region "${AWS_REGION}" \
+            --instance-ids "${ANSIBLE_INSTANCE_ID}" \
+            --document-name "AWS-RunShellScript" \
+            --comment "Deploy ${IMAGE_TAG} to EKS" \
+            --parameters file:///tmp/deploy-commands.json \
+            --query "Command.CommandId" \
+            --output text)
+
+          echo "SSM Command ID: ${COMMAND_ID}"
+
+          aws ssm wait command-executed \
+            --region "${AWS_REGION}" \
+            --command-id "${COMMAND_ID}" \
+            --instance-id "${ANSIBLE_INSTANCE_ID}"
+
+          STATUS=$(aws ssm get-command-invocation \
+            --region "${AWS_REGION}" \
+            --command-id "${COMMAND_ID}" \
+            --instance-id "${ANSIBLE_INSTANCE_ID}" \
+            --query "Status" \
+            --output text)
+
+          echo "Ansible deploy status: ${STATUS}"
+          aws ssm get-command-invocation \
+            --region "${AWS_REGION}" \
+            --command-id "${COMMAND_ID}" \
+            --instance-id "${ANSIBLE_INSTANCE_ID}" \
+            --query "[StandardOutputContent,StandardErrorContent]" \
+            --output text || true
+
+          test "${STATUS}" = "Success"
+        '''
+      }
+    }
   }
 
   post {
@@ -118,7 +249,7 @@ pipeline {
       echo "Pipeline succeeded. Image: ${env.ECR_REPOSITORY_URL}:${IMAGE_TAG}"
     }
     failure {
-      echo "Pipeline failed. Check Maven, SonarQube quality gate, Trivy, or ECR push."
+      echo "Pipeline failed. Check Maven, Sonar, Trivy, ECR push, or Ansible/EKS deploy."
     }
   }
 }

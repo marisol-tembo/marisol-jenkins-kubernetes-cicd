@@ -12,7 +12,9 @@ resource "aws_ecr_repository" "app" {
   }
 
   tags = {
-    Name = "${var.name}-ecr"
+    Name    = "${var.name}-ecr"
+    Role    = "ecr"
+    Project = var.name
   }
 }
 

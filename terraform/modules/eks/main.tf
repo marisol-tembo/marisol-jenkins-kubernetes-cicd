@@ -82,7 +82,9 @@ resource "aws_eks_cluster" "main" {
   ]
 
   tags = {
-    Name = "${var.name}-eks"
+    Name    = "${var.name}-eks"
+    Role    = "eks"
+    Project = var.name
   }
 }
 
