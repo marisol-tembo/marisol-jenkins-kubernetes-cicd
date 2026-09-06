@@ -92,7 +92,7 @@ curl -s http://127.0.0.1:9000/api/system/status
 | Param | Typical value |
 |-------|----------------|
 | `RUN_SONAR` | `true` |
-| `DEPLOY` | `false` until EKS is Ready, then `true` |
+| `DEPLOY` | `true` by default — deploys each new ECR image to EKS (set `false` to build/push only) |
 
 Everything else is discovered automatically:
 

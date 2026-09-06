@@ -99,3 +99,19 @@
       ansible.builtin.command: kubectl -n demo rollout status deployment/demo-app --timeout=180s
       environment:
         KUBECONFIG: "{{ kubeconfig_path }}"
+
+    - name: Read public LoadBalancer hostname
+      ansible.builtin.command: >
+        kubectl -n demo get svc demo-app
+        -o jsonpath={.status.loadBalancer.ingress[0].hostname}
+      register: lb_hostname
+      changed_when: false
+      failed_when: false
+      environment:
+        KUBECONFIG: "{{ kubeconfig_path }}"
+
+    - name: Show app URL
+      ansible.builtin.debug:
+        msg: >-
+          App URL: http://{{ lb_hostname.stdout | default('pending', true) }}/
+          (NLB may take 1–2 minutes after first create)

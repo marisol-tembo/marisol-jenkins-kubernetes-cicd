@@ -10,7 +10,7 @@ pipeline {
 
   parameters {
     booleanParam(name: 'RUN_SONAR', defaultValue: true, description: 'Run SonarQube analysis')
-    booleanParam(name: 'DEPLOY', defaultValue: false, description: 'Deploy to EKS via Ansible SSM (tag Role=ansible)')
+    booleanParam(name: 'DEPLOY', defaultValue: true, description: 'Deploy new ECR image to EKS via Ansible (default on)')
   }
 
   options {
@@ -270,6 +270,7 @@ PY
   post {
     success {
       echo "Pipeline succeeded. Image: ${env.ECR_REPOSITORY_URL}:${IMAGE_TAG}"
+      echo "Public app (NLB): kubectl -n demo get svc demo-app  (look at EXTERNAL-IP)"
     }
     failure {
       echo "Pipeline failed. Check Maven, Sonar, Trivy, ECR push, or Ansible/EKS deploy."
