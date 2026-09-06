@@ -208,6 +208,12 @@ cmds = [
   "export KUBECONFIG=/root/.kube/config",
   "export EKS_CLUSTER_NAME=%s" % os.environ["EKS_CLUSTER_NAME"],
   "export PATH=/usr/local/bin:/usr/bin:$PATH",
+  # Host may still be mid-bootstrap, or older user_data failed on pip upgrade
+  "if ! command -v ansible-playbook >/dev/null 2>&1; then dnf install -y python3-pip git unzip >/dev/null; pip3 install --no-cache-dir ansible kubernetes; fi",
+  "if ! command -v kubectl >/dev/null 2>&1; then curl -fsSL -o /usr/local/bin/kubectl \"https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl\"; chmod +x /usr/local/bin/kubectl; fi",
+  "hash -r",
+  "command -v ansible-playbook",
+  "command -v kubectl",
   "mkdir -p /opt/ansible",
   "echo '%s' | base64 -d | tar -xzf - -C /opt/ansible" % b64,
   "cd /opt/ansible",

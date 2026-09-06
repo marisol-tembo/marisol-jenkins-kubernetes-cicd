@@ -92,33 +92,30 @@ locals {
     dnf update -y
     dnf install -y python3 python3-pip git unzip
 
-    pip3 install --upgrade pip
-    pip3 install ansible kubernetes kubernetes-client
+    # Do not upgrade RPM-managed pip on AL2023 — it fails and aborts bootstrap.
+    pip3 install --no-cache-dir ansible kubernetes
 
     # kubectl
     curl -fsSL -o /usr/local/bin/kubectl "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
     chmod +x /usr/local/bin/kubectl
-
-    if ! command -v aws >/dev/null 2>&1; then
-      curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscliv2.zip
-      unzip -q /tmp/awscliv2.zip -d /tmp
-      /tmp/aws/install
-    fi
+    hash -r
+    command -v ansible-playbook
+    command -v kubectl
 
     mkdir -p /opt/ansible /home/ec2-user/.kube /root/.kube
     chown -R ec2-user:ec2-user /opt/ansible /home/ec2-user/.kube
 
-    # Configure kubeconfig for root (SSM Run Command) and ec2-user
+    # Best-effort kubeconfig; playbook also refreshes it at deploy time
     aws eks update-kubeconfig \
       --region ${data.aws_region.current.region} \
       --name ${var.eks_cluster_name} \
-      --kubeconfig /root/.kube/config
+      --kubeconfig /root/.kube/config || true
 
     aws eks update-kubeconfig \
       --region ${data.aws_region.current.region} \
       --name ${var.eks_cluster_name} \
-      --kubeconfig /home/ec2-user/.kube/config
-    chown ec2-user:ec2-user /home/ec2-user/.kube/config
+      --kubeconfig /home/ec2-user/.kube/config || true
+    chown ec2-user:ec2-user /home/ec2-user/.kube/config || true
 
     echo "Ansible bootstrap complete"
   EOF
