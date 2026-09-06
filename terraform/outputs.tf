@@ -37,3 +37,13 @@ output "sonarqube_url" {
   description = "SonarQube UI URL (Docker on Jenkins host)"
   value       = "http://${module.jenkins.public_ip}:9000"
 }
+
+output "ecr_repository_url" {
+  description = "ECR repository URL for Jenkins Docker push"
+  value       = module.ecr.repository_url
+}
+
+output "ecr_repository_arn" {
+  description = "ECR repository ARN"
+  value       = module.ecr.repository_arn
+}
