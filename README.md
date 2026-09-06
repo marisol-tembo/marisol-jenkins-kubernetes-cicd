@@ -2,11 +2,11 @@
 
 Enterprise-style CI/CD portfolio project on AWS.
 
-**Current phase: Jenkins only**
+**Current phase: Jenkins + SonarQube + ECR + Ansible + EKS**
 
-Right now Terraform deploys the Project 1-style VPC plus a Jenkins EC2 host with Java, Maven, Docker, Git, and core Jenkins pipeline plugins. SonarCloud, ECR, Ansible EC2, and EKS come in later phases.
+Terraform deploys the Project 1-style VPC, Jenkins (CI), ECR, a private Ansible host (CD), and EKS. The Jenkins pipeline builds, scans, pushes to ECR, then optionally deploys via SSM → Ansible → kubectl.
 
-**Full target pipeline:** GitHub → Jenkins (Maven, SonarCloud, Docker, Trivy, ECR) → Ansible EC2 → EKS
+**Pipeline:** GitHub → Jenkins (Maven, SonarQube, Docker, Trivy, ECR) → Ansible EC2 → EKS
 
 ## Architecture
 
@@ -14,7 +14,7 @@ Right now Terraform deploys the Project 1-style VPC plus a Jenkins EC2 host with
 flowchart LR
   GitHub[GitHub] --> Jenkins[Jenkins_EC2_Public]
   Jenkins --> Maven[Maven_Tests]
-  Jenkins --> Sonar[SonarCloud]
+  Jenkins --> Sonar[SonarQube_Docker]
   Jenkins --> Docker[Docker_Build]
   Jenkins --> Trivy[Trivy_Scan]
   Jenkins --> ECR[Amazon_ECR]
@@ -36,7 +36,7 @@ VPC layout is **copied from Project 1** (`marisol-aws-three-tier-terraform`):
 
 | Host | Responsibility |
 |------|----------------|
-| **Jenkins EC2** | CI: compile, unit tests, Sonar quality gate, Docker build, Trivy scan, ECR push |
+| **Jenkins EC2** | CI: compile, unit tests, SonarQube quality gate, Docker build, Trivy scan, ECR push |
 | **Ansible EC2** | CD: authenticate to EKS, apply manifests, wait for rollout, rollback |
 
 This matches a common enterprise pattern: **build is separated from deploy**, with different IAM permissions on each host.

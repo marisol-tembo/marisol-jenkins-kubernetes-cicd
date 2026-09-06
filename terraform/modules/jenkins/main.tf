@@ -72,6 +72,61 @@ resource "aws_iam_role_policy" "jenkins_ecr" {
   })
 }
 
+resource "aws_iam_role_policy" "jenkins_ssm_ansible" {
+  name = "${var.name}-jenkins-ssm-ansible"
+  role = aws_iam_role.jenkins.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "SsmSendCommand"
+        Effect = "Allow"
+        Action = [
+          "ssm:SendCommand"
+        ]
+        Resource = [
+          "arn:aws:ssm:*:*:document/AWS-RunShellScript",
+          "arn:aws:ec2:*:*:instance/${var.ansible_instance_id}"
+        ]
+      },
+      {
+        Sid    = "SsmCommandStatus"
+        Effect = "Allow"
+        Action = [
+          "ssm:GetCommandInvocation",
+          "ssm:ListCommandInvocations",
+          "ssm:ListCommands"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid    = "DescribeAnsibleInstance"
+        Effect = "Allow"
+        Action = [
+          "ec2:DescribeInstances"
+        ]
+        Resource = "*"
+      },
+      {
+        Sid      = "DiscoverTaggedResources"
+        Effect   = "Allow"
+        Action   = ["tag:GetResources"]
+        Resource = "*"
+      },
+      {
+        Sid    = "DescribeEksClusters"
+        Effect = "Allow"
+        Action = [
+          "eks:DescribeCluster",
+          "eks:ListClusters"
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
 resource "aws_iam_instance_profile" "jenkins" {
   name = "${var.name}-jenkins-profile"
   role = aws_iam_role.jenkins.name
@@ -105,7 +160,8 @@ resource "aws_instance" "jenkins" {
   }
 
   tags = {
-    Name = "${var.name}-jenkins"
-    Role = "jenkins"
+    Name    = "${var.name}-jenkins"
+    Role    = "jenkins"
+    Project = var.name
   }
 }

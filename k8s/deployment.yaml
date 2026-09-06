@@ -1,3 +1,5 @@
+# Reference Deployment. Ansible deploy.yml renders the live manifest with
+# ecr_repository_url:image_tag. Keep this file in sync for documentation/GitOps later.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

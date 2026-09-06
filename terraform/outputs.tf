@@ -47,3 +47,18 @@ output "ecr_repository_arn" {
   description = "ECR repository ARN"
   value       = module.ecr.repository_arn
 }
+
+output "ansible_instance_id" {
+  description = "Ansible EC2 instance ID (SSM deploy target)"
+  value       = module.ansible.instance_id
+}
+
+output "eks_cluster_name" {
+  description = "EKS cluster name"
+  value       = module.eks.cluster_name
+}
+
+output "eks_cluster_endpoint" {
+  description = "EKS cluster API endpoint"
+  value       = module.eks.cluster_endpoint
+}

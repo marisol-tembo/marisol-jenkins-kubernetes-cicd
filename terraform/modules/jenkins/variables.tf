@@ -22,3 +22,8 @@ variable "ecr_repository_arn" {
   description = "ECR repository ARN Jenkins may push/pull"
   type        = string
 }
+
+variable "ansible_instance_id" {
+  description = "Ansible EC2 instance ID for SSM SendCommand deploys"
+  type        = string
+}

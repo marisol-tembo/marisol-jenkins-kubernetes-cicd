@@ -105,10 +105,15 @@ locals {
       /tmp/aws/install
     fi
 
-    mkdir -p /opt/ansible /home/ec2-user/.kube
+    mkdir -p /opt/ansible /home/ec2-user/.kube /root/.kube
     chown -R ec2-user:ec2-user /opt/ansible /home/ec2-user/.kube
 
-    # Configure kubeconfig for the EKS cluster
+    # Configure kubeconfig for root (SSM Run Command) and ec2-user
+    aws eks update-kubeconfig \
+      --region ${data.aws_region.current.region} \
+      --name ${var.eks_cluster_name} \
+      --kubeconfig /root/.kube/config
+
     aws eks update-kubeconfig \
       --region ${data.aws_region.current.region} \
       --name ${var.eks_cluster_name} \
@@ -142,7 +147,8 @@ resource "aws_instance" "ansible" {
   }
 
   tags = {
-    Name = "${var.name}-ansible"
-    Role = "ansible"
+    Name    = "${var.name}-ansible"
+    Role    = "ansible"
+    Project = var.name
   }
 }
