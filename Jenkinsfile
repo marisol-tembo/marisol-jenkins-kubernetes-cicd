@@ -210,7 +210,8 @@ cmds = [
   "export PATH=/usr/local/bin:/usr/bin:$PATH",
   # Host may still be mid-bootstrap, or older user_data failed on pip upgrade
   "if ! command -v ansible-playbook >/dev/null 2>&1; then dnf install -y python3-pip git unzip >/dev/null; pip3 install --no-cache-dir ansible kubernetes; fi",
-  "if ! command -v kubectl >/dev/null 2>&1; then curl -fsSL -o /usr/local/bin/kubectl \"https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl\"; chmod +x /usr/local/bin/kubectl; fi",
+  # Avoid nested quotes here — Groovy ''' strips \\ before "
+  'if ! command -v kubectl >/dev/null 2>&1; then KVER=$(curl -L -s https://dl.k8s.io/release/stable.txt); curl -fsSL -o /usr/local/bin/kubectl https://dl.k8s.io/release/${KVER}/bin/linux/amd64/kubectl; chmod +x /usr/local/bin/kubectl; fi',
   "hash -r",
   "command -v ansible-playbook",
   "command -v kubectl",
